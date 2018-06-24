@@ -115,15 +115,27 @@ function createUser() {
     else
         usermod -p "*" $user # disabled password
     fi
-
-    # Add SSH keys to authorized_keys with valid permissions
-    if [ -d /home/$user/.ssh/keys ]; then
-        for publickey in /home/$user/.ssh/keys/*; do
-            cat $publickey >> /home/$user/.ssh/authorized_keys
-        done
+    # Create .ssh folder if needed
+    if [ ! -d /home/$user/.ssh ]; then
+        mkdir /home/$user/.ssh
+        chown $uid /home/$user/.ssh
+        chmod 600 /home/$user/.ssh
+    fi
+    # Create authorized_keys if need
+    if [ -d /home/$user/.ssh/authorized_keys ]; then
+        touch /home/$user/.ssh/authorized_keys
         chown $uid /home/$user/.ssh/authorized_keys
         chmod 600 /home/$user/.ssh/authorized_keys
     fi
+
+    # Add SSH keys to authorized_keys
+    for file in /config/userkeys/*
+    do
+        if [[ $file = "$user.pub" ]]; then
+            echo "Copying key for $user"
+            cat "/config/userkeys/$file" >> /home/$user/.ssh/authorized_keys
+        fi
+    done
 
     # Make sure dirs exists
     if [ -n "$dir" ]; then
@@ -154,10 +166,17 @@ if [ ! -f "$userConfPath" -a -f "$userConfPathLegacy" ]; then
     ln -s "$userConfPathLegacy" "$userConfPath"
 fi
 
-# Create users only on first run
+IFS=$'\r\n' GLOBIGNORE='*' command eval  'users=($(cat $userConfPath))'
+for ((i = 0; i < ${#users[@]}; ++i)); do
+    user="${users[i]/:*}"
+    users[i]=$user
+done
+# Create users only if not created
 if [ ! -f "$userConfFinalPath" ]; then
-    mkdir -p "$(dirname $userConfFinalPath)"
 
+    if [ ! -f "$userConfFinalPath" ]; then
+        mkdir -p "$(dirname $userConfFinalPath)"
+    fi
     # Append mounted config to final config
     if [ -f "$userConfPath" ]; then
         cat "$userConfPath" | grep -v -E "$reArgSkip" > "$userConfFinalPath"
@@ -166,7 +185,7 @@ if [ ! -f "$userConfFinalPath" ]; then
     if $startSshd; then
         # Append users from arguments to final config
         for user in "$@"; do
-            echo "$user" >> "$userConfFinalPath"
+            users+=("$user")
         done
     fi
 
@@ -174,17 +193,17 @@ if [ ! -f "$userConfFinalPath" ]; then
         # Append users from environment variable to final config
         usersFromEnv=($SFTP_USERS) # as array
         for user in "${usersFromEnv[@]}"; do
-            echo "$user" >> "$userConfFinalPath"
+            users+=("$user")
         done
     fi
 
     # Check that we have users in config
-    if [[ -f "$userConfFinalPath" && "$(cat "$userConfFinalPath" | wc -l)" > 0 ]]; then
-        # Import users from final conf file
-        while IFS= read -r user || [[ -n "$user" ]]; do
-            createUser "$user"
-        done < "$userConfFinalPath"
-    elif $startSshd; then
+    if [[ ${#users[@]} > 0 ]]; then
+        for user in ${users[@]};do
+            createUser "`grep $user $userConfPath`"
+            echo "$user" > "$userConfFinalPath"
+        done
+    else
         log "FATAL: No users provided!"
         exit 3
     fi
@@ -196,25 +215,6 @@ if [ ! -f "$userConfFinalPath" ]; then
     if [ ! -f /config/sshd/keys/ssh_host_rsa_key ]; then
         ssh-keygen -t rsa -b 4096 -f /config/keys/ssh_host_rsa_key -N ''
     fi
-fi
-
-# Copy user keys if any
-if [[ -f "$userConfFinalPath" && "$(cat "$userConfFinalPath" | wc -l)" > 0 ]]; then
-	# Read users from config
-	IFS=$'\r\n' GLOBIGNORE='*' command eval 'USERRAY=($(cat /var/run/sftp/users.conf))'
-	for i in "${USERRAY[@]}"
-	do
-		# Get user name from array
-		IFS=':' read -a usrconfig <<< $i
-		user=usrconfig[0]
-		for file in /config/userkeys/*
-		do
-			if [[ $file = "$user.pub" ]]; then
-				echo "Copying key for $user"
-				cp "/config/userkeys/$file" "/home/$user/.ssh/keys/$file"
-			fi
-		done
-	done
 fi
 
 # Source custom scripts, if any
