@@ -110,6 +110,8 @@ function createUser() {
     # to avoid problems on alpine when the user name contains a '.'
     uid="$(id -u $user)"
 
+    echo "User created $uid - $user"
+
     if [ -n "$pass" ]; then
         echo "$user:$pass" | chpasswd $chpasswdOptions
     else
@@ -117,15 +119,20 @@ function createUser() {
     fi
     # Create .ssh folder if needed
     if [ ! -d /home/$user/.ssh ]; then
+        echo "Making .ssh folder"
         mkdir /home/$user/.ssh
         chown $uid /home/$user/.ssh
         chmod 600 /home/$user/.ssh
     fi
     # Create authorized_keys if need
-    if [ -d /home/$user/.ssh/authorized_keys ]; then
+    if [ ! -d /home/$user/.ssh/authorized_keys ]; then
+        echo "Making authorized_keys"
         touch /home/$user/.ssh/authorized_keys
         chown $uid /home/$user/.ssh/authorized_keys
         chmod 600 /home/$user/.ssh/authorized_keys
+    else
+        echo "Truncating authorized_keys"
+        truncate -s 0 /home/$user/.ssh/authorized_keys
     fi
 
     # Add SSH keys to authorized_keys
