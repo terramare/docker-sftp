@@ -125,7 +125,7 @@ function createUser() {
         chmod 600 /home/$user/.ssh
     fi
     # Create authorized_keys if need
-    if [ ! -d /home/$user/.ssh/authorized_keys ]; then
+    if [ ! -e /home/$user/.ssh/authorized_keys ]; then
         echo "Making authorized_keys"
         touch /home/$user/.ssh/authorized_keys
         chown $uid /home/$user/.ssh/authorized_keys
